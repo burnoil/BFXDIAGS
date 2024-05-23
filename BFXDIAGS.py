@@ -13,8 +13,8 @@ from datetime import datetime
 class LogViewer(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("BFXDIAGS 1.29")
-        self.geometry("1200x600")
+        self.title("BFXDIAGS")
+        self.geometry("1000x600")
 
         if getattr(sys, 'frozen', False):
             base_path = sys._MEIPASS
@@ -43,7 +43,6 @@ class LogViewer(tk.Tk):
         self.update_besclient_version()
         self.update_throttling_status()
         self.update_subsidiary_status()
-        self.update_data_folder_status()
 
     def create_status_labels(self):
         self.info_frame = tk.Frame(self)
@@ -69,9 +68,6 @@ class LogViewer(tk.Tk):
 
         self.status_frame = tk.Frame(self)
         self.status_frame.pack(fill=tk.X, pady=3)
-
-        self.data_folder_status_label = Label(self.status_frame, text="Data Folder Status: Monitoring...", font=self.button_font, bg="lightgray", fg="black")
-        self.data_folder_status_label.pack(side=tk.LEFT, padx=3, pady=3)
 
         self.relay_status_label = Label(self.status_frame, text="Relay Status: Unknown", font=self.button_font, bg="lightgray", fg="black")
         self.relay_status_label.pack(side=tk.LEFT, padx=3, pady=3)
@@ -182,7 +178,7 @@ class LogViewer(tk.Tk):
             del self.tab_frames[tab_frame]
 
     def add_close_button(self, tab_frame, tab_title):
-        close_button = tk.Button(tab_frame, text="Close Tab", command=lambda: self.close_tab(tab_frame), bg="red", fg="white", font=("Arial", 8, "bold"))
+        close_button = tk.Button(tab_frame, text="Close", command=lambda: self.close_tab(tab_frame), bg="red", fg="white", font=("Arial", 10, "bold"))
         close_button.pack(side=tk.RIGHT, padx=5, pady=5)
 
     def close_tab(self, tab_frame):
@@ -441,7 +437,7 @@ class LogViewer(tk.Tk):
 
     def update_throttling_status(self):
         throttling_status = self.get_throttling_status()
-        self.toggle_throttling_button.config(text=f"Throttling Exempt: {throttling_status}")
+        self.toggle_throttling_button.config(text=f"Throttling: {throttling_status}")
 
     def get_throttling_status(self):
         try:
@@ -496,7 +492,7 @@ class LogViewer(tk.Tk):
         settings_menu.add_command(label="Change Colors", command=self.change_colors)
 
     def show_about(self):
-        messagebox.showinfo("About", "BFXDIAGS\nVersion 1.29\nDeveloped by: https://github.com/burnoil/PythonProjects")
+        messagebox.showinfo("About", "BFXDIAGS\nVersion 1.0\nDeveloped by: burnoil")
 
     def show_usage(self):
         usage_text = (
@@ -521,7 +517,7 @@ class LogViewer(tk.Tk):
     def open_registry_editor(self):
         self.registry_editor_window = tk.Toplevel(self)
         self.registry_editor_window.title("BigFix Registry Editor")
-        self.registry_editor_window.geometry("1000x600")
+        self.registry_editor_window.geometry("800x600")
 
         self.editor_frame = tk.Frame(self.registry_editor_window)
         self.editor_frame.pack(fill=tk.BOTH, expand=True)
@@ -735,10 +731,6 @@ class LogViewer(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return "Error"
-
-    def update_data_folder_status(self):
-        # This method can be used to update the status of the data folder
-        pass
 
 if __name__ == "__main__":
     app = LogViewer()
