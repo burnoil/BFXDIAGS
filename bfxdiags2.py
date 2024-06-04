@@ -640,11 +640,12 @@ class LogViewer(tk.Tk):
     def local_get_besclient_version(self):
         try:
             if os.path.exists(self.BESCLIENT_PATH):
-                result = subprocess.run(['wmic', 'datafile', 'where', f'name="{self.BESCLIENT_PATH.replace("\\", "\\\\")}"', 'get', 'Version', '/value'], capture_output=True, text=True)
+                path = self.BESCLIENT_PATH.replace("\\", "\\\\")
+                result = subprocess.run(['wmic', 'datafile', 'where', f'name="{path}"', 'get', 'Version', '/value'], capture_output=True, text=True)
                 version_info = result.stdout.strip().split('=')[-1]
                 self.status_labels["version"].config(text=f"BESClient Version: {version_info}")
             else:
-                self.status_labels["version"].config(text="BESClient Version: Not Found")
+                 self.status_labels["version"].config(text="BESClient Version: Not Found")
         except Exception as e:
             self.status_labels["version"].config(text=f"BESClient Version: Error ({str(e)})")
 
