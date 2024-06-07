@@ -34,6 +34,8 @@ Manual port checking to check any port (UDP or TCP)
 
 Button to open Windows Event Viewer
 
+Network speed status (UL and DL)
+
 Button to open and edit BigFix registry tree directly (Double-click to display/edit)
 
 Most features are threaded.
