@@ -2,7 +2,7 @@
 
 ## Log viewer built in Python (single EXE) with specific items to troubleshoot the BigFix agent on an endpoint. This has some specific checks for properties our environment so those won't work in yours. Most other features will still work, however.
 
-### Checks for BESClient Helper status
+*### Checks for BESClient Helper status
 
 ### Checks for BESClient status
 
