@@ -1,4 +1,6 @@
-BFXDIAGS:  Log viewer built in Python (single EXE) with specific items to troubleshoot the BigFix agent on an endpoint. This has some specific checks for properties our environment so those won't work in yours. Most other features will still work, however.
+BFXDIAGS:  I was a long-time Altiris engineer since about 2002. After Syamntec took over someone buult a utility called RAAD (Remote Altiris Agent Diagnostics) for troubleshooting Altirtis agents. I am attemoting to do the same for BigFix since I work with that product now.
+
+Log viewer built in Python (single EXE) with specific items to troubleshoot the BigFix agent on an endpoint. This has some specific checks for properties our environment so those won't work in yours. Most other features will still work, however.
 
 Checks for BESClient Helper status
 
