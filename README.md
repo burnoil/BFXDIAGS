@@ -1,8 +1,5 @@
 ## Transistor Replacement Data System (TRDS): Python app developed to help with vintage semiconductor replacement. This is primarily used for vintage audio restorations.
 
-* Search for, edit, add/delete functions.
-
-* Backup and restore when new version of the EXE is released..
 
 ## BFXDIAGS:  I was a long-time Altiris engineer since 2002. After Symantec (Now Broadcom) took over around 2010, someone built a utility a few years later called RAAD (Remote Altiris Agent Diagnostics) for troubleshooting Altirtis agents. I am attempting to do the same for BigFix since I work with that product now.
 
