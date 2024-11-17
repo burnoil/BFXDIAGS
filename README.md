@@ -1,8 +1,8 @@
 ## BFXDIAGS:  I was a long-time Altiris engineer since 2002. After Symantec (Now Broadcom) took over around 2010, someone built a utility a few years later called RAAD (Remote Altiris Agent Diagnostics) for troubleshooting Altirtis agents. I am attempting to do the same for BigFix since I work with that product now.
 
-Log viewer built in Python (single EXE) with specific items to troubleshoot the BigFix agent on an endpoint. This has some specific checks for properties in our environment so those won't work in yours. Most other features will still work, however.
+Log viewer built in Python (single EXE) with specific items to troubleshoot the BigFix agent on an endpoint. Create and run this file from C:\bfxdiags
 
-*  Checks for BESClient Helper status
+* Checks for BESClient Helper status
 
 * Checks for BESClient status
 
@@ -18,29 +18,11 @@ Log viewer built in Python (single EXE) with specific items to troubleshoot the 
 
 * Displays assigned relays
 
-* Has remote agent management ability (still being refined)
+* Displays Errors in RED, Warnings in  YELLOW, Successes in LIGHT GREEN.
 
-* Displays the count of Errors or Warnings in the logs
-
-* Displays Errors in RED, Warnings in  YELLOW, Successes in LIGHT GREEN. (Can be changed by user)
-
-* Button to find and open the latest BigFix log in the default log location (Auto-tails)
-
-* Button to restart BESClient service.
-
-* Button to clear site cache
-
-* Button to clear Agent cache
-
-* Manual port checking to check any port (UDP or TCP)
-
-* Button to open Windows Event Viewer
+* Restart BESClient service.
 
 * Network speed status (UL and DL)
-
-* Button to open and edit BigFix registry tree directly (Double-click to display/edit)
-
-* Most features are threaded.
 
 Adding  more...
 
