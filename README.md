@@ -1,4 +1,4 @@
-## BFXDIAGS:  I was a long-time Altiris engineer since 2002. After Symantec (Now Broadcom) took over around 2010, someone built a utility a few years later called RAAD (Remote Altiris Agent Diagnostics) for troubleshooting Altirtis agents. I am attempting to do the same for BigFix since I work with that product now.
+## BFXDIAGS:  I was a long-time Altiris engineer starting in 2002. After Symantec (Now Broadcom) took over around 2010, someone built a utility a few years later called RAAD (Remote Altiris Agent Diagnostics) for troubleshooting Altirtis agents. I am attempting to do the same for BigFix since I work with that product now.
 
 Log viewer built in Python (single EXE) with specific items to troubleshoot the BigFix agent on an endpoint. Create and run this file from C:\bfxdiags as the cache files are written there.
 
@@ -24,7 +24,7 @@ Log viewer built in Python (single EXE) with specific items to troubleshoot the 
 
 * Network speed status (UL and DL)
 
-Adding  more...
+* Can edit BigFix client registry properties directly.
 
 * Supported Platforms:
 These utilities run under Windows.
