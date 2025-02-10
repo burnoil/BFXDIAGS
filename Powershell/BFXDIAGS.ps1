@@ -1,4 +1,4 @@
-﻿# Load required .NET assemblies.
+# Load required .NET assemblies.
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -47,13 +47,14 @@ if ($savedSettings -and $savedSettings.LastLogFile -and (Test-Path $savedSetting
 # Load system information.
 $computerName = $env:COMPUTERNAME
 try {
+    # Exclude both 127.0.0.1 and link-local addresses (169.254.x.x).
     $ipAddresses = (Get-NetIPAddress -AddressFamily IPv4 |
-                    Where-Object { $_.IPAddress -notmatch '^127\.0\.0\.1' } |
+                    Where-Object { $_.IPAddress -notmatch '^127\.0\.0\.1' -and $_.IPAddress -notmatch '^169\.254\.' } |
                     Select-Object -ExpandProperty IPAddress) -join ', '
 }
 catch {
     $ipAddresses = ([System.Net.Dns]::GetHostAddresses($computerName) |
-                    Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+                    Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.IPAddressToString -notmatch '^127\.0\.0\.1' -and $_.IPAddressToString -notmatch '^169\.254\.' } |
                     ForEach-Object { $_.IPAddressToString }) -join ', '
 }
 $disk = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'"
@@ -66,7 +67,7 @@ try {
 catch {
     $relayServer = "Not Found"
 }
-# Correct BESClient.exe path (with proper spacing)
+# Correct BESClient.exe path (note the space between "BES" and "Client").
 $clientExePath = "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClient.exe"
 if (Test-Path $clientExePath) {
     $clientVersion = (Get-Item $clientExePath).VersionInfo.FileVersion
@@ -131,7 +132,7 @@ $systemInfoPanel.BackColor = [System.Drawing.Color]::Black
 $systemInfoPanel.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 $form.Controls.Add($systemInfoPanel)
 
-# Use a FlowLayoutPanel for multiple labels.
+# Use a FlowLayoutPanel inside System Info for multiple lines.
 $flowPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $flowPanel.Dock = 'Fill'
 $flowPanel.FlowDirection = 'TopDown'
@@ -140,6 +141,7 @@ $systemInfoPanel.Controls.Add($flowPanel)
 $systemInfoLabel = New-Object System.Windows.Forms.Label
 $systemInfoLabel.AutoSize = $true
 $systemInfoLabel.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+# Set text color to cyan.
 $systemInfoLabel.ForeColor = [System.Drawing.Color]::Cyan
 $systemInfoLabel.Text = $systemInfoText
 $flowPanel.Controls.Add($systemInfoLabel)
@@ -444,16 +446,7 @@ function Update-Log {
 # Section 4: Set Up Timer and Control Event Handlers
 ###############################################################
 
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = $refreshNumeric.Value
-# Update both the log file and the BESClient service status every tick.
-$timer.Add_Tick({
-    Update-Log
-    Update-BESClientStatus
-})
-$timer.Start()
-
-# Function to update BESClient service status.
+# Function: Update BESClient service status.
 function Update-BESClientStatus {
     try {
         $svc = Get-Service -Name "BESClient" -ErrorAction SilentlyContinue
@@ -462,7 +455,6 @@ function Update-BESClientStatus {
         } else {
             $status = "Not Installed"
         }
-        # Update the BESClient status label (must be done on the UI thread).
         $besClientStatusLabel.Invoke([System.Action]{
             $besClientStatusLabel.Text = "BESClient Service Status: $status"
         })
@@ -473,6 +465,15 @@ function Update-BESClientStatus {
         })
     }
 }
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = $refreshNumeric.Value
+# On each tick, update the log file and the BESClient service status.
+$timer.Add_Tick({
+    Update-Log
+    Update-BESClientStatus
+})
+$timer.Start()
 
 $chooseFileButton.Add_Click({
     $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
@@ -697,7 +698,7 @@ function Scale-Font {
         Scale-Font -control $child -scaleFactor $scaleFactor
     }
 }
-# Here we use a scaling factor of 1.0 so that buttons and labels retain their original size.
+# Here, using a scaling factor of 1.0 so that buttons and labels retain their original sizes.
 Scale-Font -control $systemInfoPanel -scaleFactor 1.0
 Scale-Font -control $logFilePanel -scaleFactor 1.0
 Scale-Font -control $controlPanel -scaleFactor 1.0
