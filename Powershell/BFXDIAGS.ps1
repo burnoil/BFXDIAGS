@@ -30,21 +30,32 @@ if (Test-Path $global:configFile) {
     }
 }
 
-# Determine the log file to open.
+# Always get the newest log file from the default log directory.
+if (-not (Test-Path $defaultLogDir)) {
+    [System.Windows.Forms.MessageBox]::Show("Log directory not found:`n$defaultLogDir", "Error", 'OK', 'Error')
+    exit
+}
+$newestLog = Get-ChildItem -Path $defaultLogDir -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $newestLog) {
+    [System.Windows.Forms.MessageBox]::Show("No log files found in:`n$defaultLogDir", "Error", 'OK', 'Error')
+    exit
+}
+
+# Determine which log file to open:
+# If a saved log file exists and is still present, compare its LastWriteTime with the newest log.
+# If the newest log is more recent, use it.
 if ($global:savedSettings -and $global:savedSettings.LastLogFile -and (Test-Path $global:savedSettings.LastLogFile)) {
-    $global:logFilePath = $global:savedSettings.LastLogFile
+    $savedLog = Get-Item $global:savedSettings.LastLogFile
+    if ($newestLog.LastWriteTime -gt $savedLog.LastWriteTime) {
+        if ($EnableDebug) { Write-Host "Using newer log: $($newestLog.FullName)" }
+        $global:logFilePath = $newestLog.FullName
+    } else {
+        if ($EnableDebug) { Write-Host "Using saved log: $($global:savedSettings.LastLogFile)" }
+        $global:logFilePath = $global:savedSettings.LastLogFile
+    }
 } else {
-    if (-not (Test-Path $defaultLogDir)) {
-        [System.Windows.Forms.MessageBox]::Show("Log directory not found:`n$defaultLogDir", "Error", 'OK', 'Error')
-        exit
-    }
-    $latestLogFile = Get-ChildItem -Path $defaultLogDir -File |
-                     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $latestLogFile) {
-        [System.Windows.Forms.MessageBox]::Show("No log files found in:`n$defaultLogDir", "Error", 'OK', 'Error')
-        exit
-    }
-    $global:logFilePath = $latestLogFile.FullName
+    if ($EnableDebug) { Write-Host "No saved log file found. Using newest log: $($newestLog.FullName)" }
+    $global:logFilePath = $newestLog.FullName
 }
 
 # Load system information.
