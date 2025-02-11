@@ -1,3 +1,6 @@
+# Set this flag to $true to enable debug messages; $false to disable.
+$EnableDebug = $false
+
 # Load required .NET assemblies.
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -7,7 +10,7 @@ Add-Type -AssemblyName System.Drawing
 ###############################################################
 
 # Set configuration file path.
-$configFile = Join-Path $PSScriptRoot "BigFixLogViewerSettings.json"
+$global:configFile = Join-Path $PSScriptRoot "BigFixLogViewerSettings.json"
 
 # Define default values.
 $defaultLogDir = "C:\Program Files (x86)\BigFix Enterprise\BES Client\__BESData\__Global\Logs"
@@ -17,19 +20,19 @@ $defaultWindowLocation = @{ X = 100; Y = 100 }
 $defaultCustomHighlightRules = @()
 
 # Load saved settings if available.
-$savedSettings = $null
-if (Test-Path $configFile) {
+$global:savedSettings = $null
+if (Test-Path $global:configFile) {
     try {
-        $savedSettings = Get-Content $configFile -Raw | ConvertFrom-Json
+        $global:savedSettings = Get-Content $global:configFile -Raw | ConvertFrom-Json
     }
     catch {
-        Write-Host "Error reading config file: $_"
+        if ($EnableDebug) { Write-Host "Error reading config file: $_" }
     }
 }
 
 # Determine the log file to open.
-if ($savedSettings -and $savedSettings.LastLogFile -and (Test-Path $savedSettings.LastLogFile)) {
-    $global:logFilePath = $savedSettings.LastLogFile
+if ($global:savedSettings -and $global:savedSettings.LastLogFile -and (Test-Path $global:savedSettings.LastLogFile)) {
+    $global:logFilePath = $global:savedSettings.LastLogFile
 } else {
     if (-not (Test-Path $defaultLogDir)) {
         [System.Windows.Forms.MessageBox]::Show("Log directory not found:`n$defaultLogDir", "Error", 'OK', 'Error')
@@ -47,7 +50,7 @@ if ($savedSettings -and $savedSettings.LastLogFile -and (Test-Path $savedSetting
 # Load system information.
 $computerName = $env:COMPUTERNAME
 try {
-    # Exclude both 127.0.0.1 and link-local addresses (169.254.x.x).
+    # Exclude loopback and link-local addresses.
     $ipAddresses = (Get-NetIPAddress -AddressFamily IPv4 |
                     Where-Object { $_.IPAddress -notmatch '^127\.0\.0\.1' -and $_.IPAddress -notmatch '^169\.254\.' } |
                     Select-Object -ExpandProperty IPAddress) -join ', '
@@ -67,7 +70,7 @@ try {
 catch {
     $relayServer = "Not Found"
 }
-# Correct BESClient.exe path (note the space between "BES" and "Client").
+# Correct BESClient.exe path.
 $clientExePath = "C:\Program Files (x86)\BigFix Enterprise\BES Client\BESClient.exe"
 if (Test-Path $clientExePath) {
     $clientVersion = (Get-Item $clientExePath).VersionInfo.FileVersion
@@ -80,19 +83,17 @@ $systemInfoText = "Machine Name: $computerName`n" +
                   "IP Addresses: $ipAddresses`n" +
                   "Disk Size (C:): $diskSizeGB GB`n" +
                   "Free Space (C:): $freeSpaceGB GB`n" +
-                  "Relay Server: $relayServer`n" +
-                  "BESClient Version: $clientVersion"
+                  "Relay Server: $relayServer"
 
 # Global variables.
 $global:lastPos = 0
 $global:errorCount   = 0
 $global:warningCount = 0
 $global:successCount = 0
-$global:IsEvtx = $false  # Flag for EVTX file.
+$global:IsEvtx = $false
 
-# Load custom highlight rules from saved settings.
-if ($savedSettings -and $savedSettings.CustomHighlightRules) {
-    $global:customHighlightRules = foreach ($rule in $savedSettings.CustomHighlightRules) {
+if ($global:savedSettings -and $global:savedSettings.CustomHighlightRules) {
+    $global:customHighlightRules = foreach ($rule in $global:savedSettings.CustomHighlightRules) {
         [PSCustomObject]@{
             Keyword = $rule.Keyword
             Color   = [System.Drawing.Color]::FromName($rule.ColorName)
@@ -103,62 +104,62 @@ if ($savedSettings -and $savedSettings.CustomHighlightRules) {
 }
 
 ###############################################################
-# Section 2: Build the GUI
+# Section 2: Build the Main Form and TabControl
 ###############################################################
 
-# Create main form.
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "BigFix Log Viewer - $(Split-Path $global:logFilePath -Leaf)"
-if ($savedSettings -and $savedSettings.WindowSize) {
-    $form.Width = $savedSettings.WindowSize.Width
-    $form.Height = $savedSettings.WindowSize.Height
-} else {
-    $form.Width = $defaultWindowSize.Width
-    $form.Height = $defaultWindowSize.Height
-}
-if ($savedSettings -and $savedSettings.WindowLocation) {
-    $form.Location = New-Object System.Drawing.Point($savedSettings.WindowLocation.X, $savedSettings.WindowLocation.Y)
-} else {
-    $form.Location = New-Object System.Drawing.Point($defaultWindowLocation.X, $defaultWindowLocation.Y)
-}
+$form.Text = "BigFix Log Viewer"
+$form.Width = if ($global:savedSettings -and $global:savedSettings.WindowSize -and $global:savedSettings.WindowSize.Width) { [int]$global:savedSettings.WindowSize.Width } else { $defaultWindowSize.Width }
+$form.Height = if ($global:savedSettings -and $global:savedSettings.WindowSize -and $global:savedSettings.WindowSize.Height) { [int]$global:savedSettings.WindowSize.Height } else { $defaultWindowSize.Height }
+$form.Location = if ($global:savedSettings -and $global:savedSettings.WindowLocation) { New-Object System.Drawing.Point($global:savedSettings.WindowLocation.X, $global:savedSettings.WindowLocation.Y) } else { New-Object System.Drawing.Point($defaultWindowLocation.X, $defaultWindowLocation.Y) }
 $form.StartPosition = 'Manual'
 
-# -- System Info Panel (Top) --
+$tabControl = New-Object System.Windows.Forms.TabControl
+$tabControl.Dock = 'Fill'
+$null = $form.Controls.Add($tabControl)
+
+# ----- Tab Page 1: Log Viewer -----
+$logViewerTab = New-Object System.Windows.Forms.TabPage
+$logViewerTab.Text = "Log Viewer"
+$null = $tabControl.TabPages.Add($logViewerTab)
+
+$logViewerPanel = New-Object System.Windows.Forms.Panel
+$logViewerPanel.Dock = 'Fill'
+$null = $logViewerTab.Controls.Add($logViewerPanel)
+
+# -- System Info Panel (within Log Viewer Tab) --
 $systemInfoPanel = New-Object System.Windows.Forms.Panel
 $systemInfoPanel.Dock = 'Top'
 $systemInfoPanel.Height = 120
-# Set background to black.
 $systemInfoPanel.BackColor = [System.Drawing.Color]::Black
 $systemInfoPanel.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$form.Controls.Add($systemInfoPanel)
+$null = $logViewerPanel.Controls.Add($systemInfoPanel)
 
-# Use a FlowLayoutPanel inside System Info for multiple lines.
 $flowPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $flowPanel.Dock = 'Fill'
 $flowPanel.FlowDirection = 'TopDown'
-$systemInfoPanel.Controls.Add($flowPanel)
+$flowPanel.WrapContents = $false
+$null = $systemInfoPanel.Controls.Add($flowPanel)
 
 $systemInfoLabel = New-Object System.Windows.Forms.Label
 $systemInfoLabel.AutoSize = $true
 $systemInfoLabel.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
-# Set text color to cyan.
 $systemInfoLabel.ForeColor = [System.Drawing.Color]::Cyan
 $systemInfoLabel.Text = $systemInfoText
-$flowPanel.Controls.Add($systemInfoLabel)
+$null = $flowPanel.Controls.Add($systemInfoLabel)
 
-# New label for BESClient service status.
-$besClientStatusLabel = New-Object System.Windows.Forms.Label
-$besClientStatusLabel.AutoSize = $true
-$besClientStatusLabel.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
-$besClientStatusLabel.ForeColor = [System.Drawing.Color]::Cyan
-$besClientStatusLabel.Text = "BESClient Service Status: Unknown"
-$flowPanel.Controls.Add($besClientStatusLabel)
+$besInfoLabel = New-Object System.Windows.Forms.Label
+$besInfoLabel.AutoSize = $true
+$besInfoLabel.Font = New-Object System.Drawing.Font("Consolas", 10, [System.Drawing.FontStyle]::Bold)
+$besInfoLabel.ForeColor = [System.Drawing.Color]::Cyan
+$besInfoLabel.Text = "BESClient Version: $clientVersion | BESClient Service Status: Unknown"
+$null = $flowPanel.Controls.Add($besInfoLabel)
 
-# -- Log File Panel (Below System Info) --
+# -- Log File Panel (within Log Viewer Tab) --
 $logFilePanel = New-Object System.Windows.Forms.Panel
 $logFilePanel.Dock = 'Top'
 $logFilePanel.Height = 30
-$form.Controls.Add($logFilePanel)
+$null = $logViewerPanel.Controls.Add($logFilePanel)
 
 function Update-LogFileLabel {
     $fileItem = Get-Item $global:logFilePath
@@ -170,99 +171,97 @@ $logFileLabel.AutoSize = $true
 $logFileLabel.Font = New-Object System.Drawing.Font("Consolas", 9)
 Update-LogFileLabel
 $logFileLabel.Location = New-Object System.Drawing.Point(10, 5)
-$logFilePanel.Controls.Add($logFileLabel)
+$null = $logFilePanel.Controls.Add($logFileLabel)
 
-# -- Control Panel (Search, Pause/Resume, Export, Clear, Choose Log, Manage Highlights, Open Event Viewer, Restart BESClient, Refresh Interval, Stats) --
+# -- Control Panel (within Log Viewer Tab) --
 $controlPanel = New-Object System.Windows.Forms.Panel
 $controlPanel.Dock = 'Top'
-$controlPanel.Height = 80
+$controlPanel.Height = 100
 $controlPanel.BackColor = [System.Drawing.Color]::WhiteSmoke
-$form.Controls.Add($controlPanel)
+$null = $logViewerPanel.Controls.Add($controlPanel)
 
+# Row 1: Primary Buttons.
 $searchLabel = New-Object System.Windows.Forms.Label
 $searchLabel.Text = "Search:"
-$searchLabel.Location = New-Object System.Drawing.Point(10, 10)
+$searchLabel.Location = New-Object System.Drawing.Point(10, 5)
 $searchLabel.AutoSize = $true
-$controlPanel.Controls.Add($searchLabel)
+$null = $controlPanel.Controls.Add($searchLabel)
 
 $searchTextBox = New-Object System.Windows.Forms.TextBox
-$searchTextBox.Location = New-Object System.Drawing.Point(70, 7)
+$searchTextBox.Location = New-Object System.Drawing.Point(70, 2)
 $searchTextBox.Width = 150
-$controlPanel.Controls.Add($searchTextBox)
+$null = $controlPanel.Controls.Add($searchTextBox)
 
 $findNextButton = New-Object System.Windows.Forms.Button
 $findNextButton.Text = "Find Next"
-$findNextButton.Location = New-Object System.Drawing.Point(230, 5)
+$findNextButton.Location = New-Object System.Drawing.Point(230, 2)
 $findNextButton.AutoSize = $true
-$controlPanel.Controls.Add($findNextButton)
+$null = $controlPanel.Controls.Add($findNextButton)
 
 $pauseResumeButton = New-Object System.Windows.Forms.Button
 $pauseResumeButton.Text = "Pause"
-$pauseResumeButton.Location = New-Object System.Drawing.Point(320, 5)
+$pauseResumeButton.Location = New-Object System.Drawing.Point(320, 2)
 $pauseResumeButton.AutoSize = $true
-$controlPanel.Controls.Add($pauseResumeButton)
+$null = $controlPanel.Controls.Add($pauseResumeButton)
 
 $exportButton = New-Object System.Windows.Forms.Button
 $exportButton.Text = "Export Log"
-$exportButton.Location = New-Object System.Drawing.Point(400, 5)
+$exportButton.Location = New-Object System.Drawing.Point(400, 2)
 $exportButton.AutoSize = $true
-$controlPanel.Controls.Add($exportButton)
+$null = $controlPanel.Controls.Add($exportButton)
 
 $clearButton = New-Object System.Windows.Forms.Button
 $clearButton.Text = "Clear Log"
-$clearButton.Location = New-Object System.Drawing.Point(490, 5)
+$clearButton.Location = New-Object System.Drawing.Point(490, 2)
 $clearButton.AutoSize = $true
-$controlPanel.Controls.Add($clearButton)
+$null = $controlPanel.Controls.Add($clearButton)
 
 $chooseFileButton = New-Object System.Windows.Forms.Button
 $chooseFileButton.Text = "Choose Log File"
 $chooseFileButton.AutoSize = $true
-$chooseFileButton.Location = New-Object System.Drawing.Point(580, 5)
-$controlPanel.Controls.Add($chooseFileButton)
+$chooseFileButton.Location = New-Object System.Drawing.Point(580, 2)
+$null = $controlPanel.Controls.Add($chooseFileButton)
 
 $manageHighlightsButton = New-Object System.Windows.Forms.Button
 $manageHighlightsButton.Text = "Manage Highlights"
 $manageHighlightsButton.AutoSize = $true
-$manageHighlightsButton.Location = New-Object System.Drawing.Point(680, 5)
-$controlPanel.Controls.Add($manageHighlightsButton)
+$manageHighlightsButton.Location = New-Object System.Drawing.Point(680, 2)
+$null = $controlPanel.Controls.Add($manageHighlightsButton)
 
 $openEventViewerButton = New-Object System.Windows.Forms.Button
 $openEventViewerButton.Text = "Open Event Viewer"
 $openEventViewerButton.AutoSize = $true
-$openEventViewerButton.Location = New-Object System.Drawing.Point(800, 5)
-$controlPanel.Controls.Add($openEventViewerButton)
+$openEventViewerButton.Location = New-Object System.Drawing.Point(800, 2)
+$null = $controlPanel.Controls.Add($openEventViewerButton)
 
 $restartBESClientButton = New-Object System.Windows.Forms.Button
 $restartBESClientButton.Text = "Restart BESClient"
 $restartBESClientButton.AutoSize = $true
-$restartBESClientButton.Location = New-Object System.Drawing.Point(920, 5)
+$restartBESClientButton.Location = New-Object System.Drawing.Point(920, 2)
 $restartBESClientButton.BackColor = [System.Drawing.Color]::LightGreen
-$controlPanel.Controls.Add($restartBESClientButton)
+$null = $controlPanel.Controls.Add($restartBESClientButton)
 
+# Row 2: Refresh Interval and Stats.
 $refreshLabel = New-Object System.Windows.Forms.Label
 $refreshLabel.Text = "Refresh Interval (ms):"
-$refreshLabel.Location = New-Object System.Drawing.Point(10, 40)
+$refreshLabel.Location = New-Object System.Drawing.Point(10, 60)
 $refreshLabel.AutoSize = $true
-$controlPanel.Controls.Add($refreshLabel)
+$null = $controlPanel.Controls.Add($refreshLabel)
 
 $refreshNumeric = New-Object System.Windows.Forms.NumericUpDown
-$refreshNumeric.Location = New-Object System.Drawing.Point(140, 38)
+$refreshNumeric.Location = New-Object System.Drawing.Point(140, 58)
 $refreshNumeric.Minimum = 100
 $refreshNumeric.Maximum = 5000
-if ($savedSettings -and $savedSettings.RefreshInterval) {
-    $refreshNumeric.Value = $savedSettings.RefreshInterval
-} else {
-    $refreshNumeric.Value = $defaultRefreshInterval
-}
-$controlPanel.Controls.Add($refreshNumeric)
+$refreshNumeric.Value = if ($global:savedSettings -and $global:savedSettings.RefreshInterval) { $global:savedSettings.RefreshInterval } else { $defaultRefreshInterval }
+$null = $controlPanel.Controls.Add($refreshNumeric)
 
 $statsLabel = New-Object System.Windows.Forms.Label
 $statsLabel.Text = "Errors: 0, Warnings: 0, Successes: 0"
-$statsLabel.Location = New-Object System.Drawing.Point(320, 40)
+$statsLabel.Location = New-Object System.Drawing.Point(320, 60)
 $statsLabel.AutoSize = $true
-$controlPanel.Controls.Add($statsLabel)
+$null = $controlPanel.Controls.Add($statsLabel)
 
-# -- Log Content Panel --
+# -- Log Content Panel (within Log Viewer Tab) --
 $richTextBox = New-Object System.Windows.Forms.RichTextBox
 $richTextBox.Multiline = $true
 $richTextBox.ReadOnly = $true
@@ -270,18 +269,323 @@ $richTextBox.ScrollBars = 'Vertical'
 $richTextBox.Dock = 'Fill'
 $richTextBox.Font = New-Object System.Drawing.Font("Consolas",10)
 $richTextBox.BackColor = [System.Drawing.Color]::White
-$form.Controls.Add($richTextBox)
+$null = $logViewerPanel.Controls.Add($richTextBox)
 
-# Ensure proper ordering of panels.
-$form.Controls.SetChildIndex($systemInfoPanel, 0)
-$form.Controls.SetChildIndex($logFilePanel, 1)
-$form.Controls.SetChildIndex($controlPanel, 2)
+# ----- Tab Page 2: Installed Apps -----
+$installedAppsTab = New-Object System.Windows.Forms.TabPage
+$installedAppsTab.Text = "Installed Apps"
+$null = $tabControl.TabPages.Add($installedAppsTab)
+
+$installedAppsPanel = New-Object System.Windows.Forms.Panel
+$installedAppsPanel.Dock = 'Fill'
+$null = $installedAppsTab.Controls.Add($installedAppsPanel)
+
+$appsSearchPanel = New-Object System.Windows.Forms.Panel
+$appsSearchPanel.Height = 30
+$appsSearchPanel.Dock = 'Top'
+$null = $installedAppsPanel.Controls.Add($appsSearchPanel)
+
+$appsSearchLabel = New-Object System.Windows.Forms.Label
+$appsSearchLabel.Text = "Search:"
+$appsSearchLabel.Location = New-Object System.Drawing.Point(10, 5)
+$appsSearchLabel.AutoSize = $true
+$null = $appsSearchPanel.Controls.Add($appsSearchLabel)
+
+$appsSearchTextBox = New-Object System.Windows.Forms.TextBox
+$appsSearchTextBox.Location = New-Object System.Drawing.Point(70, 2)
+$appsSearchTextBox.Width = 200
+$null = $appsSearchPanel.Controls.Add($appsSearchTextBox)
+
+$appsSearchButton = New-Object System.Windows.Forms.Button
+$appsSearchButton.Text = "Search"
+$appsSearchButton.Location = New-Object System.Drawing.Point(280, 0)
+$appsSearchButton.AutoSize = $true
+$null = $appsSearchPanel.Controls.Add($appsSearchButton)
+
+$appsRefreshButton = New-Object System.Windows.Forms.Button
+$appsRefreshButton.Text = "Refresh"
+$appsRefreshButton.AutoSize = $true
+$appsRefreshButton.Location = New-Object System.Drawing.Point(360, 0)
+$null = $appsSearchPanel.Controls.Add($appsRefreshButton)
+$appsRefreshButton.Add_Click({ Load-InstalledApps })
+
+# Use a TableLayoutPanel to host the custom header and ListView.
+$appsTable = New-Object System.Windows.Forms.TableLayoutPanel
+$appsTable.Dock = 'Fill'
+$appsTable.RowCount = 2
+$appsTable.ColumnCount = 1
+$appsTable.RowStyles.Clear()
+$appsTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 25)))
+$appsTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+$null = $installedAppsPanel.Controls.Add($appsTable)
+
+# Create header panel for Installed Apps.
+$appsHeaderPanel = New-Object System.Windows.Forms.Panel
+$appsHeaderPanel.Dock = 'Fill'
+$appsHeaderPanel.BackColor = [System.Drawing.Color]::LightGray
+$null = $appsTable.Controls.Add($appsHeaderPanel, 0, 0)
+
+$appsNameHeader = New-Object System.Windows.Forms.Label
+$appsNameHeader.Text = "Name"
+$appsNameHeader.Width = 400
+$appsNameHeader.Dock = 'Left'
+$appsNameHeader.TextAlign = 'MiddleLeft'
+$null = $appsHeaderPanel.Controls.Add($appsNameHeader)
+
+$appsVersionHeader = New-Object System.Windows.Forms.Label
+$appsVersionHeader.Text = "Version"
+$appsVersionHeader.Width = 100
+$appsVersionHeader.Dock = 'Left'
+$appsVersionHeader.TextAlign = 'MiddleLeft'
+$null = $appsHeaderPanel.Controls.Add($appsVersionHeader)
+
+$appsPublisherHeader = New-Object System.Windows.Forms.Label
+$appsPublisherHeader.Text = "Publisher"
+$appsPublisherHeader.Width = 200
+$appsPublisherHeader.Dock = 'Fill'
+$appsPublisherHeader.TextAlign = 'MiddleLeft'
+$null = $appsHeaderPanel.Controls.Add($appsPublisherHeader)
+
+# Create the Installed Apps ListView.
+$appsListView = New-Object System.Windows.Forms.ListView
+$appsListView.View = [System.Windows.Forms.View]::Details
+$appsListView.FullRowSelect = $true
+$appsListView.GridLines = $true
+$appsListView.Dock = 'Fill'
+$null = $appsListView.Columns.Add("Name", 400)
+$null = $appsListView.Columns.Add("Version", 100)
+$null = $appsListView.Columns.Add("Publisher", 200)
+# Optionally, hide the default header:
+#$appsListView.HeaderStyle = [System.Windows.Forms.ColumnHeaderStyle]::None
+$null = $appsTable.Controls.Add($appsListView, 0, 1)
+
+function Load-InstalledApps {
+    $appsListView.Items.Clear()
+    $installedApps = @()
+    $regPaths = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    foreach ($path in $regPaths) {
+        try {
+            $keys = Get-ChildItem $path -ErrorAction SilentlyContinue
+            foreach ($key in $keys) {
+                try {
+                    $app = Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue
+                    if ($app.DisplayName) {
+                        $installedApps += [PSCustomObject]@{
+                            Name = $app.DisplayName
+                            Version = $app.DisplayVersion
+                            Publisher = $app.Publisher
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
+    }
+    $installedApps = $installedApps | Sort-Object Name
+    foreach ($app in $installedApps) {
+        $item = New-Object System.Windows.Forms.ListViewItem($app.Name)
+        if ($app.Version) { $null = $item.SubItems.Add($app.Version) } else { $null = $item.SubItems.Add("") }
+        if ($app.Publisher) { $null = $item.SubItems.Add($app.Publisher) } else { $null = $item.SubItems.Add("") }
+        $null = $appsListView.Items.Add($item)
+    }
+}
+Load-InstalledApps
+
+$appsSearchButton.Add_Click({
+    $searchText = $appsSearchTextBox.Text
+    if (-not [string]::IsNullOrEmpty($searchText)) {
+        foreach ($item in $appsListView.Items) { $item.BackColor = [System.Drawing.Color]::White }
+        $foundItem = $appsListView.FindItemWithText($searchText)
+        if ($foundItem) {
+            $appsListView.SelectedItems.Clear()
+            $foundItem.Selected = $true
+            $foundItem.BackColor = [System.Drawing.Color]::LightYellow
+            $appsListView.EnsureVisible($foundItem.Index)
+        } else {
+            [System.Windows.Forms.MessageBox]::Show("No installed application found containing '$searchText'.", "Search", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        }
+    }
+})
+
+# ----- Tab Page 3: Running Processes -----
+$processesTab = New-Object System.Windows.Forms.TabPage
+$processesTab.Text = "Running Processes"
+$null = $tabControl.TabPages.Add($processesTab)
+
+$processesPanel = New-Object System.Windows.Forms.Panel
+$processesPanel.Dock = 'Fill'
+$null = $processesTab.Controls.Add($processesPanel)
+
+# Create a control panel for the Processes tab.
+$procControlPanel = New-Object System.Windows.Forms.Panel
+$procControlPanel.Height = 40
+$procControlPanel.Dock = 'Top'
+$null = $processesPanel.Controls.Add($procControlPanel)
+
+$refreshProcessesButton = New-Object System.Windows.Forms.Button
+$refreshProcessesButton.Text = "Refresh Processes"
+$refreshProcessesButton.AutoSize = $true
+$refreshProcessesButton.Location = New-Object System.Drawing.Point(10, 5)
+$null = $procControlPanel.Controls.Add($refreshProcessesButton)
+
+$killProcessButton = New-Object System.Windows.Forms.Button
+$killProcessButton.Text = "Kill Process"
+$killProcessButton.AutoSize = $true
+$killProcessButton.Location = New-Object System.Drawing.Point(150, 5)
+$null = $procControlPanel.Controls.Add($killProcessButton)
+
+# Use a TableLayoutPanel for the Running Processes header and ListView.
+$procTable = New-Object System.Windows.Forms.TableLayoutPanel
+$procTable.Dock = 'Fill'
+$procTable.RowCount = 2
+$procTable.ColumnCount = 1
+$procTable.RowStyles.Clear()
+# Increase header row height to 30 to ensure full visibility.
+$procTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 30)))
+$procTable.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+$null = $processesPanel.Controls.Add($procTable)
+
+# Create header panel for Running Processes.
+$procHeaderPanel = New-Object System.Windows.Forms.Panel
+$procHeaderPanel.Dock = 'Fill'
+$procHeaderPanel.BackColor = [System.Drawing.Color]::LightGray
+$null = $procTable.Controls.Add($procHeaderPanel, 0, 0)
+
+$procNameHeader = New-Object System.Windows.Forms.Label
+$procNameHeader.Text = "Process Name"
+$procNameHeader.Width = 300
+$procNameHeader.Dock = 'Left'
+$procNameHeader.TextAlign = 'MiddleLeft'
+$null = $procHeaderPanel.Controls.Add($procNameHeader)
+
+$procIDHeader = New-Object System.Windows.Forms.Label
+$procIDHeader.Text = "ID"
+$procIDHeader.Width = 80
+$procIDHeader.Dock = 'Left'
+$procIDHeader.TextAlign = 'MiddleLeft'
+$null = $procHeaderPanel.Controls.Add($procIDHeader)
+
+$procMemoryHeader = New-Object System.Windows.Forms.Label
+$procMemoryHeader.Text = "Memory (MB)"
+$procMemoryHeader.Width = 100
+$procMemoryHeader.Dock = 'Left'
+$procMemoryHeader.TextAlign = 'MiddleLeft'
+$null = $procHeaderPanel.Controls.Add($procMemoryHeader)
+
+$procCPUHeader = New-Object System.Windows.Forms.Label
+$procCPUHeader.Text = "CPU (s)"
+$procCPUHeader.Width = 80
+$procCPUHeader.Dock = 'Fill'
+$procCPUHeader.TextAlign = 'MiddleLeft'
+$null = $procHeaderPanel.Controls.Add($procCPUHeader)
+
+# Create the Running Processes ListView.
+$procListView = New-Object System.Windows.Forms.ListView
+$procListView.View = [System.Windows.Forms.View]::Details
+$procListView.FullRowSelect = $true
+$procListView.GridLines = $true
+$procListView.Dock = 'Fill'
+$null = $procListView.Columns.Add("Process Name", 300)
+$null = $procListView.Columns.Add("ID", 80)
+$null = $procListView.Columns.Add("Memory (MB)", 100)
+$null = $procListView.Columns.Add("CPU (s)", 80)
+# Optionally hide the default header:
+#$procListView.HeaderStyle = [System.Windows.Forms.ColumnHeaderStyle]::None
+$null = $procTable.Controls.Add($procListView, 0, 1)
+
+# Add a ContextMenuStrip to $procListView for right-click functionality.
+$procContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$killMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem "Kill Process"
+$null = $procContextMenu.Items.Add($killMenuItem)
+$procListView.ContextMenuStrip = $procContextMenu
+
+# Optional: When right-clicking, select the item under the mouse.
+$procListView.Add_MouseDown({
+    param($sender, $e)
+    if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
+        $hitTestInfo = $sender.HitTest($e.X, $e.Y)
+        if ($hitTestInfo.Item -ne $null) {
+            $sender.SelectedItems.Clear()
+            $hitTestInfo.Item.Selected = $true
+        }
+    }
+})
+
+# When the "Kill Process" context menu item is clicked, perform the kill.
+$killMenuItem.Add_Click({
+    if ($procListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show("No process is selected.", "Kill Process", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    } else {
+        $selectedItem = $procListView.SelectedItems[0]
+        $procId = [int]$selectedItem.SubItems[1].Text
+        $procName = $selectedItem.Text
+        $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to kill process '$procName' (ID: $procId)?", "Confirm Kill", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+        if ($confirm -eq [System.Windows.Forms.DialogResult]::Yes) {
+            try {
+                Stop-Process -Id $procId -Force
+                [System.Windows.Forms.MessageBox]::Show("Process '$procName' (ID: $procId) has been killed.", "Kill Process", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show("Failed to kill process '$procName': $_", "Kill Process Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            }
+            Load-Processes
+        }
+    }
+})
+
+function Load-Processes {
+    $procListView.Items.Clear()
+    try {
+        $procs = Get-Process | Sort-Object -Property ProcessName
+        foreach ($proc in $procs) {
+            $item = New-Object System.Windows.Forms.ListViewItem($proc.ProcessName)
+            $null = $item.SubItems.Add($proc.Id.ToString())
+            $memMB = [math]::Round($proc.WorkingSet64 / 1MB, 2)
+            $null = $item.SubItems.Add($memMB.ToString())
+            try {
+                $cpuSec = [math]::Round($proc.TotalProcessorTime.TotalSeconds, 2)
+                $null = $item.SubItems.Add($cpuSec.ToString())
+            } catch {
+                $null = $item.SubItems.Add("N/A")
+            }
+            $null = $procListView.Items.Add($item)
+        }
+    }
+    catch {
+        if ($EnableDebug) { Write-Host "Error loading processes: $_" }
+    }
+}
+Load-Processes
+
+$refreshProcessesButton.Add_Click({ Load-Processes })
+
+$killProcessButton.Add_Click({
+    if ($procListView.SelectedItems.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show("Please select a process to kill.", "Kill Process", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    } else {
+        $selectedItem = $procListView.SelectedItems[0]
+        $procId = [int]$selectedItem.SubItems[1].Text
+        $procName = $selectedItem.Text
+        $confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to kill process '$procName' (ID: $procId)?", "Confirm Kill", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+        if ($confirm -eq [System.Windows.Forms.DialogResult]::Yes) {
+            try {
+                Stop-Process -Id $procId -Force
+                [System.Windows.Forms.MessageBox]::Show("Process '$procName' (ID: $procId) has been killed.", "Kill Process", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+            } catch {
+                [System.Windows.Forms.MessageBox]::Show("Failed to kill process '$procName': $_", "Kill Process Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            }
+            Load-Processes
+        }
+    }
+})
 
 ###############################################################
-# Section 3: Log Tailing, Rehighlight Function, and Helper Functions
+# Section 3: Log Tailing, Rehighlight Function, and Helper Functions (for Log Viewer)
 ###############################################################
 
-# Helper: Append a line with color highlighting.
 function Append-LogLine {
     param(
         [string]$line
@@ -318,12 +622,10 @@ function Append-LogLine {
     Update-Stats
 }
 
-# Helper: Update statistics label.
 function Update-Stats {
     $statsLabel.Text = "Errors: $global:errorCount, Warnings: $global:warningCount, Successes: $global:successCount"
 }
 
-# Function: Rehighlight all existing text (called when custom rules change).
 function Rehighlight-ExistingText {
     $currentText = $richTextBox.Text
     $richTextBox.Clear()
@@ -338,7 +640,6 @@ function Rehighlight-ExistingText {
     }
 }
 
-# Function: Load the initial log file content.
 function Load-LogFile {
     param (
         [string]$filePath
@@ -346,7 +647,6 @@ function Load-LogFile {
     if ($filePath.ToLower().EndsWith(".evtx")) {
         $global:IsEvtx = $true
         try {
-            # For EVTX files, use Get-WinEvent (limit to the most recent 1000 events)
             $events = Get-WinEvent -Path $filePath -MaxEvents 1000
             $output = ""
             foreach ($event in $events) {
@@ -359,7 +659,7 @@ function Load-LogFile {
             $richTextBox.Text = $output
         }
         catch {
-            Write-Host "Error reading EVTX file: $_"
+            if ($EnableDebug) { Write-Host "Error reading EVTX file: $_" }
         }
     }
     else {
@@ -381,13 +681,12 @@ function Load-LogFile {
             $richTextBox.ScrollToCaret()
         }
         catch {
-            Write-Host "Error reading log content: $_"
+            if ($EnableDebug) { Write-Host "Error reading log content: $_" }
         }
     }
     Update-LogFileLabel
 }
 
-# Function: Update (tail) the log file.
 function Update-Log {
     if ($global:IsEvtx) {
         try {
@@ -404,7 +703,7 @@ function Update-Log {
             Update-LogFileLabel
         }
         catch {
-            Write-Host "Error refreshing EVTX file: $_"
+            if ($EnableDebug) { Write-Host "Error refreshing EVTX file: $_" }
         }
         return
     }
@@ -438,7 +737,7 @@ function Update-Log {
         }
     }
     catch {
-        Write-Host "Error reading log file: $_"
+        if ($EnableDebug) { Write-Host "Error reading log file: $_" }
     }
 }
 
@@ -446,7 +745,6 @@ function Update-Log {
 # Section 4: Set Up Timer and Control Event Handlers
 ###############################################################
 
-# Function: Update BESClient service status.
 function Update-BESClientStatus {
     try {
         $svc = Get-Service -Name "BESClient" -ErrorAction SilentlyContinue
@@ -455,24 +753,18 @@ function Update-BESClientStatus {
         } else {
             $status = "Not Installed"
         }
-        $besClientStatusLabel.Invoke([System.Action]{
-            $besClientStatusLabel.Text = "BESClient Service Status: $status"
-        })
+        $besInfoText = "BESClient Version: $clientVersion | BESClient Service Status: $status"
+        $besInfoLabel.Invoke([System.Action]{ $besInfoLabel.Text = $besInfoText })
     }
     catch {
-        $besClientStatusLabel.Invoke([System.Action]{
-            $besClientStatusLabel.Text = "BESClient Service Status: Error"
-        })
+        if ($EnableDebug) { Write-Host "Error updating BESClient status: $_" }
+        $besInfoLabel.Invoke([System.Action]{ $besInfoLabel.Text = "BESClient Version: $clientVersion | BESClient Service Status: Error" })
     }
 }
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = $refreshNumeric.Value
-# On each tick, update the log file and the BESClient service status.
-$timer.Add_Tick({
-    Update-Log
-    Update-BESClientStatus
-})
+$timer.Add_Tick({ Update-Log; Update-BESClientStatus })
 $timer.Start()
 
 $chooseFileButton.Add_Click({
@@ -515,9 +807,7 @@ $clearButton.Add_Click({
     Update-Stats
 })
 
-$refreshNumeric.Add_ValueChanged({
-    $timer.Interval = $refreshNumeric.Value
-})
+$refreshNumeric.Add_ValueChanged({ $timer.Interval = $refreshNumeric.Value })
 
 $findNextButton.Add_Click({
     $searchTerm = $searchTextBox.Text
@@ -532,9 +822,7 @@ $findNextButton.Add_Click({
     }
 })
 
-$openEventViewerButton.Add_Click({
-    Start-Process "eventvwr.exe"
-})
+$openEventViewerButton.Add_Click({ Start-Process "eventvwr.exe" })
 
 $restartBESClientButton.Add_Click({
     try {
@@ -546,52 +834,45 @@ $restartBESClientButton.Add_Click({
     }
 })
 
-# Function: Show Manage Highlights Dialog.
 function Show-ManageHighlightsDialog {
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = "Manage Custom Highlight Rules"
     $dialog.Size = New-Object System.Drawing.Size(400,300)
     $dialog.StartPosition = "CenterParent"
-
-    # ListBox for existing rules.
+    
     $rulesListBox = New-Object System.Windows.Forms.ListBox
     $rulesListBox.Location = New-Object System.Drawing.Point(10,10)
     $rulesListBox.Size = New-Object System.Drawing.Size(360,100)
     foreach ($rule in $global:customHighlightRules) {
-         $rulesListBox.Items.Add("$($rule.Keyword) : $($rule.Color.Name)")
+         $null = $rulesListBox.Items.Add("$($rule.Keyword) : $($rule.Color.Name)")
     }
-    $dialog.Controls.Add($rulesListBox)
-
-    # Label for new rule keyword.
+    $null = $dialog.Controls.Add($rulesListBox)
+    
     $keywordLabel = New-Object System.Windows.Forms.Label
     $keywordLabel.Text = "Keyword:"
     $keywordLabel.Location = New-Object System.Drawing.Point(10, 120)
     $keywordLabel.AutoSize = $true
-    $dialog.Controls.Add($keywordLabel)
-
-    # TextBox for new rule keyword.
+    $null = $dialog.Controls.Add($keywordLabel)
+    
     $keywordTextBox = New-Object System.Windows.Forms.TextBox
     $keywordTextBox.Location = New-Object System.Drawing.Point(80, 117)
     $keywordTextBox.Width = 150
-    $dialog.Controls.Add($keywordTextBox)
-
-    # Button for choosing color.
+    $null = $dialog.Controls.Add($keywordTextBox)
+    
     $chooseColorButton = New-Object System.Windows.Forms.Button
     $chooseColorButton.Text = "Choose Color"
     $chooseColorButton.Location = New-Object System.Drawing.Point(240, 115)
     $chooseColorButton.AutoSize = $true
-    $dialog.Controls.Add($chooseColorButton)
-
-    # Label to show chosen color.
+    $null = $dialog.Controls.Add($chooseColorButton)
+    
     $colorLabel = New-Object System.Windows.Forms.Label
     $colorLabel.Text = "No color selected"
     $colorLabel.Location = New-Object System.Drawing.Point(10, 150)
     $colorLabel.AutoSize = $true
-    $dialog.Controls.Add($colorLabel)
-
-    # Variable to store the selected color as a [ref] variable.
+    $null = $dialog.Controls.Add($colorLabel)
+    
     $selectedColor = [ref]([System.Drawing.Color]::Empty)
-
+    
     $chooseColorButton.Add_Click({
       $colorDialog = New-Object System.Windows.Forms.ColorDialog
       if ($colorDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -599,14 +880,13 @@ function Show-ManageHighlightsDialog {
          $colorLabel.Text = "Selected: " + $selectedColor.Value.Name
       }
     })
-
-    # Add Rule button.
+    
     $addRuleButton = New-Object System.Windows.Forms.Button
     $addRuleButton.Text = "Add Rule"
     $addRuleButton.Location = New-Object System.Drawing.Point(10, 180)
     $addRuleButton.AutoSize = $true
-    $dialog.Controls.Add($addRuleButton)
-
+    $null = $dialog.Controls.Add($addRuleButton)
+    
     $addRuleButton.Add_Click({
       if (-not [string]::IsNullOrEmpty($keywordTextBox.Text) -and (-not $selectedColor.Value.IsEmpty)) {
          $rule = [PSCustomObject]@{
@@ -614,7 +894,7 @@ function Show-ManageHighlightsDialog {
              Color   = $selectedColor.Value
          }
          $global:customHighlightRules += $rule
-         $rulesListBox.Items.Add("$($rule.Keyword) : $($rule.Color.Name)")
+         $null = $rulesListBox.Items.Add("$($rule.Keyword) : $($rule.Color.Name)")
          $keywordTextBox.Clear()
          $selectedColor.Value = [System.Drawing.Color]::Empty
          $colorLabel.Text = "No color selected"
@@ -623,34 +903,30 @@ function Show-ManageHighlightsDialog {
          [System.Windows.Forms.MessageBox]::Show("Please enter a keyword and select a color.","Input Required",[System.Windows.Forms.MessageBoxButtons]::OK,[System.Windows.Forms.MessageBoxIcon]::Warning)
       }
     })
-
-    # Remove Rule button.
+    
     $removeRuleButton = New-Object System.Windows.Forms.Button
     $removeRuleButton.Text = "Remove Selected Rule"
     $removeRuleButton.Location = New-Object System.Drawing.Point(120, 180)
     $removeRuleButton.AutoSize = $true
-    $dialog.Controls.Add($removeRuleButton)
-
+    $null = $dialog.Controls.Add($removeRuleButton)
+    
     $removeRuleButton.Add_Click({
       if ($rulesListBox.SelectedIndex -ge 0) {
          $index = $rulesListBox.SelectedIndex
          $global:customHighlightRules = $global:customHighlightRules | Where-Object { $global:customHighlightRules.IndexOf($_) -ne $index }
-         $rulesListBox.Items.RemoveAt($index)
+         $null = $rulesListBox.Items.RemoveAt($index)
          Rehighlight-ExistingText
       }
     })
-
-    # OK button to close the dialog.
+    
     $okButton = New-Object System.Windows.Forms.Button
     $okButton.Text = "OK"
     $okButton.Location = New-Object System.Drawing.Point(10, 220)
     $okButton.AutoSize = $true
-    $dialog.Controls.Add($okButton)
-
-    $okButton.Add_Click({
-      $dialog.Close()
-    })
-
+    $null = $dialog.Controls.Add($okButton)
+    
+    $okButton.Add_Click({ $dialog.Close() })
+    
     $dialog.ShowDialog() | Out-Null
 }
 
@@ -660,9 +936,22 @@ $manageHighlightsButton.Add_Click({ Show-ManageHighlightsDialog })
 # Section 5: Initialize and Run the Application
 ###############################################################
 
-Load-LogFile -filePath $global:logFilePath
+try {
+    Load-LogFile -filePath $global:logFilePath
+} catch {
+    [System.Windows.Forms.MessageBox]::Show("Failed to load log file: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+}
+$tabControl.SelectedTab = $logViewerTab
 
-# Save user preferences when the form is closing.
+$form.Add_Shown({
+    if ($EnableDebug) { Write-Host "Form shown. Loading log file from $global:logFilePath" }
+    try {
+        Load-LogFile -filePath $global:logFilePath
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Failed to load log file: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }
+})
+
 $form.Add_FormClosing({
     $newSettings = @{
        RefreshInterval = $refreshNumeric.Value
@@ -677,7 +966,7 @@ $form.Add_FormClosing({
             ColorName = $rule.Color.Name
        }
     }
-    $newSettings | ConvertTo-Json -Depth 5 | Out-File -FilePath $configFile -Encoding UTF8
+    $newSettings | ConvertTo-Json -Depth 5 | Out-File -FilePath $global:configFile -Encoding UTF8
 })
 
 ###############################################################
@@ -690,7 +979,6 @@ function Scale-Font {
         [double]$scaleFactor
     )
     if ($control.Font -ne $null) {
-        # Cast the font size to double and multiply.
         $newSize = ([double]$control.Font.Size) * $scaleFactor
         $control.Font = New-Object System.Drawing.Font($control.Font.FontFamily, $newSize, $control.Font.Style)
     }
@@ -698,11 +986,10 @@ function Scale-Font {
         Scale-Font -control $child -scaleFactor $scaleFactor
     }
 }
-# Here, using a scaling factor of 1.0 so that buttons and labels retain their original sizes.
 Scale-Font -control $systemInfoPanel -scaleFactor 1.0
 Scale-Font -control $logFilePanel -scaleFactor 1.0
 Scale-Font -control $controlPanel -scaleFactor 1.0
 
-[System.Windows.Forms.Application]::Run($form)
-$timer.Stop()
-$timer.Dispose()
+[void][System.Windows.Forms.Application]::Run($form)
+[void]$timer.Stop()
+[void]$timer.Dispose()
