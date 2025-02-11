@@ -1,4 +1,4 @@
-# Converting to Powershell. See Powershell folder.
+## Converting to Powershell. See Powershell folder. This was originally written in Python, but is now converting to Powershell. This will help it run faster and won't require a stand-alone EXE with all of the Python libraries.
 
 ## BFXDIAGS:  I was a long-time Altiris engineer starting in 2002. After Symantec (Now Broadcom) took over around 2010, someone built a utility a few years later called RAAD (Remote Altiris Agent Diagnostics) for troubleshooting Altiris agents. I am attempting to do the same for BigFix since I work with that product now.
 
