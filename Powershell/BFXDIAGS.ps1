@@ -91,40 +91,42 @@ try {
                 throw "Config file is empty"
             }
             $savedSettings = $jsonContent | ConvertFrom-Json -ErrorAction Stop
-            if ($savedSettings.PSObject.Properties.Name -contains "CustomHighlightRules") {
-                $global:AppConfig.CustomHighlightRules = foreach ($rule in $savedSettings.CustomHighlightRules) {
-                    if ($rule.PSObject.Properties.Name -contains "Keyword" -and $rule.PSObject.Properties.Name -contains "ColorName") {
-                        [PSCustomObject]@{
-                            Keyword = $rule.Keyword
-                            Color = [System.Drawing.Color]::FromName($rule.ColorName)
-                        }
-                    }
-                }
-            }
+            Write-DebugLog -Message "Successfully loaded settings from $($global:AppConfig.ConfigFile)" -Level "Info"
         } catch {
             Write-DebugLog -Message "Error reading or parsing config file: $_" -Level "Error"
             $savedSettings = $null # Ensure null to use defaults
         }
+    } else {
+        Write-DebugLog -Message "Config file not found at $($global:AppConfig.ConfigFile), using defaults" -Level "Info"
     }
 
-    # Validate file paths.
+    # Fix: Simplified Validate-FilePath to focus on existence and accessibility
     function Validate-FilePath {
         param ([string]$filePath)
-        if (-not $filePath) { return $false }
+        if (-not $filePath) {
+            Write-DebugLog -Message "File path validation failed: Path is empty" -Level "Warning"
+            return $false
+        }
         try {
-            if (-not (Test-Path $filePath -PathType Leaf -ErrorAction Stop)) { return $false }
-            if ($filePath -match '[<>|?*]') { return $false }
-            return $true
+            if (Test-Path $filePath -PathType Leaf -ErrorAction Stop) {
+                Write-DebugLog -Message "File path validated: $filePath" -Level "Info"
+                return $true
+            } else {
+                Write-DebugLog -Message "File path validation failed: $filePath does not exist or is not a file" -Level "Warning"
+                return $false
+            }
         } catch {
             Write-DebugLog -Message "File path validation error for '$filePath': $_" -Level "Error"
             return $false
         }
     }
 
-    # Determine the log file to open.
+    # Fix: Improved log file selection to ensure most recent log is chosen
     if ($savedSettings -and $savedSettings.PSObject.Properties.Name -contains "LastLogFile" -and (Validate-FilePath $savedSettings.LastLogFile)) {
         $global:AppConfig.LogFilePath = $savedSettings.LastLogFile
+        Write-DebugLog -Message "Using saved log file: $($global:AppConfig.LogFilePath)" -Level "Info"
     } else {
+        Write-DebugLog -Message "No valid saved log file, selecting most recent log from $defaultLogDir" -Level "Info"
         if (-not (Test-Path $defaultLogDir)) {
             [System.Windows.Forms.MessageBox]::Show("Log directory not found:`n$defaultLogDir", "Error", 'OK', 'Error')
             Write-DebugLog -Message "Log directory not found: $defaultLogDir" -Level "Error"
@@ -132,13 +134,16 @@ try {
         }
         try {
             $latestLogFile = Get-ChildItem -Path $defaultLogDir -File -ErrorAction Stop |
-                             Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                             Where-Object { $_.Extension -match '\.log$|\.txt$|\.evtx$' } | # Filter for common log extensions
+                             Sort-Object LastWriteTime -Descending |
+                             Select-Object -First 1
             if (-not $latestLogFile) {
                 [System.Windows.Forms.MessageBox]::Show("No log files found in:`n$defaultLogDir", "Error", 'OK', 'Error')
                 Write-DebugLog -Message "No log files found in: $defaultLogDir" -Level "Error"
                 exit
             }
             $global:AppConfig.LogFilePath = $latestLogFile.FullName
+            Write-DebugLog -Message "Selected most recent log file: $($global:AppConfig.LogFilePath)" -Level "Info"
         } catch {
             Write-DebugLog -Message "Error finding latest log file: $_" -Level "Error"
             [System.Windows.Forms.MessageBox]::Show("Error accessing log directory: $_", "Error", 'OK', 'Error')
@@ -147,6 +152,7 @@ try {
     }
     try {
         $global:AppConfig.LastModified = (Get-Item $global:AppConfig.LogFilePath -ErrorAction Stop).LastWriteTime
+        Write-DebugLog -Message "Log file last modified: $($global:AppConfig.LastModified)" -Level "Info"
     } catch {
         Write-DebugLog -Message "Error getting last modified time for '$($global:AppConfig.LogFilePath)': $_" -Level "Error"
         $global:AppConfig.LastModified = [DateTime]::Now
@@ -317,10 +323,9 @@ try {
     $caseSensitiveCheckBox.AutoSize = $true
     $controlPanel.Controls.Add($caseSensitiveCheckBox)
 
-    # Fix: Adjusted Find Next button position to prevent overlap with Case Sensitive checkbox
     $findNextButton = New-Object System.Windows.Forms.Button
     $findNextButton.Text = "Find Next"
-    $findNextButton.Location = New-Object System.Drawing.Point(350, 2) # Moved from 320 to 350
+    $findNextButton.Location = New-Object System.Drawing.Point(350, 2)
     $findNextButton.AutoSize = $true
     $controlPanel.Controls.Add($findNextButton)
 
@@ -334,7 +339,6 @@ try {
     $filterComboBox = New-Object System.Windows.Forms.ComboBox
     $filterComboBox.Location = New-Object System.Drawing.Point(70, 28)
     $filterComboBox.Width = 150
-    # Fix: Changed "Successes" to "Success" in filter options
     $filterComboBox.Items.AddRange(@("All", "Errors", "Warnings", "Success", "Custom"))
     $filterComboBox.SelectedIndex = 0
     $controlPanel.Controls.Add($filterComboBox)
@@ -403,7 +407,6 @@ try {
     $refreshNumeric.Value = if ($savedSettings -and $savedSettings.PSObject.Properties.Name -contains "RefreshInterval") { $savedSettings.RefreshInterval } else { $defaultRefreshInterval }
     $controlPanel.Controls.Add($refreshNumeric)
 
-    # Fix: Changed "Successes" to "Success" in stats label
     $statsLabel = New-Object System.Windows.Forms.Label
     $statsLabel.Text = "Errors: 0, Warnings: 0, Success: 0"
     $statsLabel.Location = New-Object System.Drawing.Point(320, 85)
@@ -675,7 +678,7 @@ try {
                 }
             }
         }
-        Write-DebugLog -Message "Failed to read log file '$filePath' after $retryCount attempts" -Level "Error"
+        Write-DebugLog -Message "Failed to read log file '$filePath'Thursday, May 22, 2025 after $retryCount attempts" -Level "Error"
         return $null
     }
 
@@ -690,7 +693,6 @@ try {
                 $shouldDisplay = $true
                 if ($filter -eq "Errors" -and -not ($line -match '(?i)error')) { $shouldDisplay = $false }
                 elseif ($filter -eq "Warnings" -and -not ($line -match '(?i)warning')) { $shouldDisplay = $false }
-                # Fix: Changed "Successes" to "Success" in filter logic
                 elseif ($filter -eq "Success" -and -not ($line -match '(?i)success')) { $shouldDisplay = $false }
                 elseif ($filter -eq "Custom" -and -not [string]::IsNullOrEmpty($customFilter) -and -not ($line -match "(?i)$customFilter")) { $shouldDisplay = $false }
                 if (-not $shouldDisplay) { continue }
@@ -705,7 +707,6 @@ try {
                     $richTextBox.SelectionBackColor = [System.Drawing.Color]::Yellow
                     $global:AppConfig.WarningCount++
                 }
-                # Fix: Changed "Successes" to "Success" in highlighting logic
                 elseif ($line -match '(?i)success') {
                     $richTextBox.SelectionBackColor = [System.Drawing.Color]::LightGreen
                     $global:AppConfig.SuccessCount++
@@ -734,7 +735,6 @@ try {
     function Update-Stats {
         try {
             if (-not $statsLabel -or $statsLabel.IsDisposed) { return }
-            # Fix: Changed "Successes" to "Success" in stats text
             $text = "Errors: $($global:AppConfig.ErrorCount), Warnings: $($global:AppConfig.WarningCount), Success: $($global:AppConfig.SuccessCount)"
             if ($statsLabel.InvokeRequired) {
                 $statsLabel.Invoke([System.Action]{ $statsLabel.Text = $text })
@@ -1301,11 +1301,32 @@ try {
         }
     })
 
+    # Fix: Added indicator for BESClient service restart
     $restartBESClientButton.Add_Click({
         try {
+            # Update button text to show restarting status
+            if ($restartBESClientButton.InvokeRequired) {
+                $restartBESClientButton.Invoke([System.Action]{ $restartBESClientButton.Text = "Restarting..." })
+            } else {
+                $restartBESClientButton.Text = "Restarting..."
+            }
+            Write-DebugLog -Message "Initiating BESClient service restart" -Level "Info"
             Restart-Service -Name "BESClient" -Force -ErrorAction Stop
+            # Restore button text on success
+            if ($restartBESClientButton.InvokeRequired) {
+                $restartBESClientButton.Invoke([System.Action]{ $restartBESClientButton.Text = "Restart BESClient" })
+            } else {
+                $restartBESClientButton.Text = "Restart BESClient"
+            }
             [System.Windows.Forms.MessageBox]::Show("BESClient service restarted successfully.", "Service Restart", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+            Write-DebugLog -Message "BESClient service restarted successfully" -Level "Info"
         } catch {
+            # Restore button text on error
+            if ($restartBESClientButton.InvokeRequired) {
+                $restartBESClientButton.Invoke([System.Action]{ $restartBESClientButton.Text = "Restart BESClient" })
+            } else {
+                $restartBESClientButton.Text = "Restart BESClient"
+            }
             Write-DebugLog -Message "Error in restartBESClientButton click: $_" -Level "Error"
             [System.Windows.Forms.MessageBox]::Show("Failed to restart BESClient service: $_", "Service Restart Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         }
@@ -1422,6 +1443,7 @@ try {
                 }
             }
             $newSettings | ConvertTo-Json -Depth 5 | Out-File -FilePath $global:AppConfig.ConfigFile -Encoding UTF8 -ErrorAction Stop
+            Write-DebugLog -Message "Settings saved to $($global:AppConfig.ConfigFile)" -Level "Info"
         } catch {
             Write-DebugLog -Message "Error saving settings on form close: $_" -Level "Error"
         }
@@ -1433,6 +1455,7 @@ try {
             if ($richTextBox -and -not $richTextBox.IsDisposed) { $richTextBox.Dispose() }
             if ($tabControl -and -not $tabControl.IsDisposed) { $tabControl.Dispose() }
             if ($form -and -not $form.IsDisposed) { $form.Dispose() }
+            Write-DebugLog -Message "Resources disposed successfully" -Level "Info"
         } catch {
             Write-DebugLog -Message "Error disposing resources on form close: $_" -Level "Error"
         }
