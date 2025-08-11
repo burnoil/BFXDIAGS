@@ -4,16 +4,17 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# NEW: Add P/Invoke signature for SendMessage to prevent RichTextBox flicker
+# Add P/Invoke signature for SendMessage to prevent RichTextBox flicker
+# REVISED: Changed wParam type from IntPtr to int for better PowerShell compatibility.
 $cSharpSig = @"
 using System;
 using System.Runtime.InteropServices;
 public class Win32 {
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+    public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, IntPtr lParam);
 }
 "@
-Add-Type -TypeDefinition $cSharpSig -Namespace "Utils"
+Add-Type -TypeDefinition $cSharpSig
 
 
 # Define paths and settings file
@@ -198,7 +199,6 @@ function Add-LogTab {
     }
 }
 
-# REVISED: Function now uses SendMessage to prevent flicker instead of BeginUpdate/EndUpdate
 function Add-ColoredText {
     param (
         $rtb,
@@ -210,7 +210,8 @@ function Add-ColoredText {
 
     try {
         # Suspend drawing to prevent flicker during bulk updates
-        [Utils.Win32]::SendMessage($rtb.Handle, $WM_SETREDRAW, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        # REVISED: Passing simple integers (0 and 1) instead of IntPtr objects.
+        [Win32]::SendMessage($rtb.Handle, $WM_SETREDRAW, 0, [IntPtr]::Zero) | Out-Null
 
         $lines = $text -split '\r?\n'
         foreach ($line in $lines) {
@@ -230,7 +231,8 @@ function Add-ColoredText {
     }
     finally {
         # Always re-enable drawing and refresh the control
-        [Utils.Win32]::SendMessage($rtb.Handle, $WM_SETREDRAW, [IntPtr]::One, [IntPtr]::Zero) | Out-Null
+        # REVISED: Passing simple integers (0 and 1) instead of IntPtr objects.
+        [Win32]::SendMessage($rtb.Handle, $WM_SETREDRAW, 1, [IntPtr]::Zero) | Out-Null
         $rtb.Invalidate()
         $rtb.SelectionStart = $rtb.TextLength
         $rtb.ScrollToCaret()
