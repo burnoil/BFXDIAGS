@@ -4,6 +4,18 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# NEW: Add P/Invoke signature for SendMessage to prevent RichTextBox flicker
+$cSharpSig = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+}
+"@
+Add-Type -TypeDefinition $cSharpSig -Namespace "Utils"
+
+
 # Define paths and settings file
 $scriptName = "BigFixLogViewer"
 $appDataPath = "$env:APPDATA\$scriptName"
@@ -186,33 +198,45 @@ function Add-LogTab {
     }
 }
 
-# Function to append text with row highlighting and optional filter
+# REVISED: Function now uses SendMessage to prevent flicker instead of BeginUpdate/EndUpdate
 function Add-ColoredText {
     param (
         $rtb,
         [string]$text,
         [string]$filter = "All"
     )
-    $rtb.BeginUpdate()
-    $lines = $text -split '\r?\n'
-    foreach ($line in $lines) {
-        $matchType = Get-MatchType -line $line
-        if ($filter -ne "All" -and $matchType -ne $filter) { continue }
+    # WM_SETREDRAW message constant
+    $WM_SETREDRAW = 11
 
-        $startPos = $rtb.TextLength
-        $rtb.AppendText($line + "`n")
-        $rtb.Select($startPos, $line.Length)
-        
-        $backColor = [System.Drawing.Color]::White
-        if ($matchType) {
-            $backColor = [System.Drawing.Color]::$($globalKeywords[$matchType].Color)
+    try {
+        # Suspend drawing to prevent flicker during bulk updates
+        [Utils.Win32]::SendMessage($rtb.Handle, $WM_SETREDRAW, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+
+        $lines = $text -split '\r?\n'
+        foreach ($line in $lines) {
+            $matchType = Get-MatchType -line $line
+            if ($filter -ne "All" -and $matchType -ne $filter) { continue }
+
+            $startPos = $rtb.TextLength
+            $rtb.AppendText($line + "`n")
+            $rtb.Select($startPos, $line.Length)
+            
+            $backColor = [System.Drawing.Color]::White
+            if ($matchType) {
+                $backColor = [System.Drawing.Color]::$($globalKeywords[$matchType].Color)
+            }
+            $rtb.SelectionBackColor = $backColor
         }
-        $rtb.SelectionBackColor = $backColor
     }
-    $rtb.SelectionStart = $rtb.TextLength
-    $rtb.ScrollToCaret()
-    $rtb.EndUpdate()
+    finally {
+        # Always re-enable drawing and refresh the control
+        [Utils.Win32]::SendMessage($rtb.Handle, $WM_SETREDRAW, [IntPtr]::One, [IntPtr]::Zero) | Out-Null
+        $rtb.Invalidate()
+        $rtb.SelectionStart = $rtb.TextLength
+        $rtb.ScrollToCaret()
+    }
 }
+
 
 # Helper to get match type
 function Get-MatchType {
@@ -433,6 +457,7 @@ $tailingTimer.Add_Tick({
         $fp = $ht.FilePath
         
         try {
+            if (-not (Test-Path $fp)) { continue } # Skip if file has been deleted
             $currentLength = (Get-Item $fp).Length
             # Detect log rotation (file got smaller)
             if ($currentLength -lt $ht.LastLength) {
