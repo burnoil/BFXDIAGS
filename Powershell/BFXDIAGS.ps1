@@ -35,7 +35,6 @@ function Load-Settings {
             }
         }
         catch {
-            # FIXED: Used ${} to prevent parsing errors.
             Write-Warning "Could not load settings file. Using defaults. Error: $_"
         }
     }
@@ -463,7 +462,6 @@ $tailingTimer.Add_Tick({
             }
         } catch {
             # Could be a temporary lock, just try again next tick.
-            # FIXED: Used ${} to prevent parsing errors.
             Write-Warning "Error tailing file ${fp}: $_"
         }
     }
